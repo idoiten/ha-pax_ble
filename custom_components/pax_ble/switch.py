@@ -1,5 +1,4 @@
 import logging
-
 from collections import namedtuple
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import CONF_DEVICES
@@ -52,10 +51,8 @@ SVENSA_ENTITIES = [
     ),
 ]
 
-
 async def async_setup_entry(hass, config_entry, async_add_devices):
     """Setup switch from a config entry created in the integrations UI."""
-    # Create entities
     ha_entities = []
 
     for device_id in config_entry.data[CONF_DEVICES]:
@@ -64,14 +61,11 @@ async def async_setup_entry(hass, config_entry, async_add_devices):
             config_entry.data[CONF_DEVICES][device_id][CONF_NAME],
         )
 
-        # Find coordinator for this device
         coordinator = hass.data[DOMAIN][config_entry.entry_id][CONF_DEVICES][device_id]
 
-        # Create entities for this device
         for paxentity in ENTITIES:
             ha_entities.append(PaxCalimaSwitchEntity(coordinator, paxentity))
 
-        # Device specific entities
         match coordinator._model:
             case (
                 DeviceModel.CALIMA.value
@@ -91,7 +85,6 @@ class PaxCalimaSwitchEntity(PaxCalimaEntity, SwitchEntity):
     """Representation of a Switch."""
 
     def __init__(self, coordinator, paxentity):
-        """Pass coordinator to PaxCalimaEntity."""
         super().__init__(coordinator, paxentity)
         self._paxattr = paxentity.attributes
 
@@ -103,7 +96,6 @@ class PaxCalimaSwitchEntity(PaxCalimaEntity, SwitchEntity):
     @property
     def extra_state_attributes(self):
         if self._paxattr is not None:
-            """Return entity specific state attributes."""
             descriptor = self._paxattr.descriptor
             key = self.coordinator.get_data(self._paxattr.key)
             unit = self._paxattr.unit
@@ -122,17 +114,22 @@ class PaxCalimaSwitchEntity(PaxCalimaEntity, SwitchEntity):
         await self.writeVal(0)
 
     async def writeVal(self, val):
-        """Save old value"""
+        """Write a value to the device with immediate state refresh."""
         old_value = self.coordinator.get_data(self._key)
 
-        """Write new value to our storage"""
+        # Sätt nytt värde lokalt
         self.coordinator.set_data(self._key, val)
 
-        """ Write value to device """
+        # Skriv till enheten
         ret = await self.coordinator.write_data(self._key)
 
-        """ Update HA value """
         if not ret:
-            """Restore value"""
+            # Återställ vid misslyckande
             self.coordinator.set_data(self._key, old_value)
-        self.async_schedule_update_ha_state(force_refresh=False)
+
+        # --- Direkt läsning av värde från fläkten ---
+        if hasattr(self.coordinator, "read_sensordata"):
+            await self.coordinator.read_sensordata(disconnect=False)
+
+        # Uppdatera HA med det färska värdet
+        self.async_schedule_update_ha_state(force_refresh=True)
